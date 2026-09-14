@@ -1,12 +1,36 @@
 (function(){
   let asyncMode=false;
   let openHistoryQuestion=null;
+  let reactionsEnabled=false;
+  const reactionChoices=['❤️','😂','👀','🫶🏻','😈'];
 
   const oldRefresh=window.refresh;
   const oldNewQuestion=window.newQuestion;
   const oldSkip=window.skip;
 
   function partnerName(){return player===1?state?.player2_name:state?.player1_name;}
+
+  function reactionFor(qid,answerPlayer,reactorPlayer){
+    return (state?.reactions||[]).find(r=>r.question_id===qid && Number(r.answer_player)===Number(answerPlayer) && Number(r.reactor_player)===Number(reactorPlayer));
+  }
+
+  function reactionHtml(qid,answerPlayer){
+    if(!reactionsEnabled) return '';
+    const other=player===1?2:1;
+    if(Number(answerPlayer)===Number(player)){
+      const theirs=reactionFor(qid,answerPlayer,other);
+      return theirs?`<div class="reactionNote">${esc(partnerName())} reacted ${esc(theirs.reaction)}</div>`:'';
+    }
+    const mine=reactionFor(qid,answerPlayer,player);
+    return `<div class="reactionRow" aria-label="React to this answer">${reactionChoices.map(r=>`<button class="reactionBtn${mine?.reaction===r?' on':''}" data-qid="${qid}" data-answer-player="${answerPlayer}" data-reaction="${r}" type="button">${r}</button>`).join('')}</div>`;
+  }
+
+  async function loadReactions(){
+    const result=await sb.rpc('fm_get_reactions',{p_game:game,p_secret:secret,p_player:player});
+    if(result.error){reactionsEnabled=false;state.reactions=[];return;}
+    reactionsEnabled=true;
+    state.reactions=result.data||[];
+  }
 
   async function refreshV3(){
     const active=document.activeElement;
@@ -20,6 +44,7 @@
     }
     asyncMode=true;
     state=data;
+    await loadReactions();
     renderGameV3();
   }
 
@@ -75,6 +100,20 @@
     await refreshV3();
   }
 
+  async function setReaction(qid,answerPlayer,reaction){
+    if(!reactionsEnabled) return;
+    const {error}=await sb.rpc('fm_set_reaction',{
+      p_game:game,
+      p_secret:secret,
+      p_question:qid,
+      p_answer_player:Number(answerPlayer),
+      p_reactor_player:player,
+      p_reaction:reaction
+    });
+    if(error){msg('Reaction refused to cooperate 😅');return;}
+    await refreshV3();
+  }
+
   function historyHtmlV3(){
     const rows=(state?.history||[]).filter(x=>!x.skipped && (x.my_submitted||x.partner_submitted));
     if(!rows.length) return '<p class="muted">Nothing revealed yet. Suspiciously innocent.</p>';
@@ -84,7 +123,7 @@
       let body='';
 
       if(both){
-        body=`<div class="answerBox"><strong>${esc(state.player1_name)}</strong><br>${esc(x.player1_answer)}</div><div class="answerBox"><strong>${esc(state.player2_name)}</strong><br>${esc(x.player2_answer)}</div>`;
+        body=`<div class="answerBox"><strong>${esc(state.player1_name)}</strong><br>${esc(x.player1_answer)}${reactionHtml(x.id,1)}</div><div class="answerBox"><strong>${esc(state.player2_name)}</strong><br>${esc(x.player2_answer)}${reactionHtml(x.id,2)}</div>`;
       } else if(x.my_submitted){
         body=`<div class="answerBox"><strong>You</strong><br>${esc(x.my_answer)}</div><p class="muted">Waiting for ${esc(partnerName())} 🔒</p>`;
       } else if(x.partner_submitted){
@@ -109,6 +148,9 @@
     document.querySelectorAll('.historyAnswerInput').forEach(input=>{
       input.addEventListener('focus',()=>{try{stopPolling();}catch(e){}});
       input.addEventListener('blur',()=>setTimeout(()=>{try{startPolling();}catch(e){}},500));
+    });
+    document.querySelectorAll('.reactionBtn').forEach(btn=>{
+      btn.onclick=()=>setReaction(btn.dataset.qid,btn.dataset.answerPlayer,btn.dataset.reaction);
     });
   }
 
