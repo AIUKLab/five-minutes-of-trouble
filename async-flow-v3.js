@@ -39,10 +39,7 @@
     if(!game||!secret||!player) return;
 
     const {data,error}=await sb.rpc('fm_state_v2',{p_game:game,p_secret:secret,p_player:player});
-    if(error){
-      asyncMode=false;
-      return oldRefresh();
-    }
+    if(error){asyncMode=false;return oldRefresh();}
     asyncMode=true;
     state=data;
     await loadReactions();
@@ -53,13 +50,7 @@
     if(!asyncMode) return oldNewQuestion();
     const q=pickQuestion();
     msg('Picking trouble…');
-    const {error}=await sb.rpc('fm_new_question_v2',{
-      p_game:game,
-      p_secret:secret,
-      p_player:player,
-      p_category:selected,
-      p_question:q
-    });
+    const {error}=await sb.rpc('fm_new_question_v2',{p_game:game,p_secret:secret,p_player:player,p_category:selected,p_question:q});
     if(error){msg('Couldn’t pick a question.');return;}
     openHistoryQuestion=null;
     await refreshV3();
@@ -103,26 +94,15 @@
 
   async function setReaction(qid,answerPlayer,reaction){
     if(!reactionsEnabled) return;
-    const {error}=await sb.rpc('fm_set_reaction',{
-      p_game:game,
-      p_secret:secret,
-      p_question:qid,
-      p_answer_player:Number(answerPlayer),
-      p_reactor_player:player,
-      p_reaction:reaction
-    });
+    const {error}=await sb.rpc('fm_set_reaction',{p_game:game,p_secret:secret,p_question:qid,p_answer_player:Number(answerPlayer),p_reactor_player:player,p_reaction:reaction});
     if(error){msg('Reaction refused to cooperate 😅');return;}
     await refreshV3();
-  }
-
-  function playerAnswered(x,playerNo){
-    return player===playerNo ? !!x.my_submitted : !!x.partner_submitted;
   }
 
   function historyFilterHtml(){
     const filters=[
       ['both','Answered by both of you'],
-      ['p1',`Answered by ${state.player1_name}`],
+      ['partner',`Answered by ${partnerName()}`],
       ['you','Answered by you']
     ];
     return `<div class="cats" style="margin:12px 0 4px">${filters.map(([key,label])=>`<button type="button" class="cat historyFilterBtn${historyFilter===key?' on':''}" data-filter="${key}">${esc(label)}</button>`).join('')}</div>`;
@@ -134,7 +114,7 @@
 
     const rows=allRows.filter(x=>{
       if(historyFilter==='both') return !!x.my_submitted && !!x.partner_submitted;
-      if(historyFilter==='p1') return playerAnswered(x,1);
+      if(historyFilter==='partner') return !!x.partner_submitted;
       if(historyFilter==='you') return !!x.my_submitted;
       return true;
     });
@@ -142,7 +122,6 @@
     const list=rows.length ? rows.map(x=>{
       const both=x.my_submitted&&x.partner_submitted;
       let body='';
-
       if(both){
         body=`<div class="answerBox"><strong>${esc(state.player1_name)}</strong><br>${esc(x.player1_answer)}${reactionHtml(x.id,1)}</div><div class="answerBox"><strong>${esc(state.player2_name)}</strong><br>${esc(x.player2_answer)}${reactionHtml(x.id,2)}</div>`;
       } else if(x.my_submitted){
@@ -154,7 +133,6 @@
           body=`<p class="muted">${esc(partnerName())} has answered this 👀</p><button class="primary historyReveal" data-qid="${x.id}" style="width:100%">Answer to reveal 👀</button>`;
         }
       }
-
       return `<div class="historyItem"><div class="small">${esc(x.category)}</div><b>${esc(x.question)}</b>${body}</div>`;
     }).join('') : '<p class="muted">Nothing in this filter yet.</p>';
 
@@ -162,22 +140,14 @@
   }
 
   function wireHistoryV3(){
-    document.querySelectorAll('.historyFilterBtn').forEach(btn=>{
-      btn.onclick=()=>{historyFilter=btn.dataset.filter;openHistoryQuestion=null;renderGameV3();};
-    });
-    document.querySelectorAll('.historyReveal').forEach(btn=>{
-      btn.onclick=()=>{openHistoryQuestion=btn.dataset.qid;renderGameV3();};
-    });
-    document.querySelectorAll('.historySubmit').forEach(btn=>{
-      btn.onclick=()=>submitHistoryAnswer(btn.dataset.qid);
-    });
+    document.querySelectorAll('.historyFilterBtn').forEach(btn=>{btn.onclick=()=>{historyFilter=btn.dataset.filter;openHistoryQuestion=null;renderGameV3();};});
+    document.querySelectorAll('.historyReveal').forEach(btn=>{btn.onclick=()=>{openHistoryQuestion=btn.dataset.qid;renderGameV3();};});
+    document.querySelectorAll('.historySubmit').forEach(btn=>{btn.onclick=()=>submitHistoryAnswer(btn.dataset.qid);});
     document.querySelectorAll('.historyAnswerInput').forEach(input=>{
       input.addEventListener('focus',()=>{try{stopPolling();}catch(e){}});
       input.addEventListener('blur',()=>setTimeout(()=>{try{startPolling();}catch(e){}},500));
     });
-    document.querySelectorAll('.reactionBtn').forEach(btn=>{
-      btn.onclick=()=>setReaction(btn.dataset.qid,btn.dataset.answerPlayer,btn.dataset.reaction);
-    });
+    document.querySelectorAll('.reactionBtn').forEach(btn=>{btn.onclick=()=>setReaction(btn.dataset.qid,btn.dataset.answerPlayer,btn.dataset.reaction);});
   }
 
   function renderGameV3(){
