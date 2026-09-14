@@ -10,6 +10,7 @@
   const oldSkip=window.skip;
 
   function partnerName(){return player===1?state?.player2_name:state?.player1_name;}
+  function playerName(playerNo){return Number(playerNo)===1?state?.player1_name:state?.player2_name;}
 
   function reactionFor(qid,answerPlayer,reactorPlayer){
     return (state?.reactions||[]).find(r=>r.question_id===qid && Number(r.answer_player)===Number(answerPlayer) && Number(r.reactor_player)===Number(reactorPlayer));
@@ -17,13 +18,15 @@
 
   function reactionHtml(qid,answerPlayer){
     if(!reactionsEnabled) return '';
-    const other=player===1?2:1;
-    if(Number(answerPlayer)===Number(player)){
-      const theirs=reactionFor(qid,answerPlayer,other);
-      return theirs?`<div class="reactionNote">${esc(partnerName())} reacted ${esc(theirs.reaction)}</div>`:'';
-    }
+    const reactor=Number(answerPlayer)===1?2:1;
+    const existing=reactionFor(qid,answerPlayer,reactor);
+    const note=existing?`<div class="reactionNote">${Number(reactor)===Number(player)?'You':esc(playerName(reactor))} reacted ${esc(existing.reaction)}</div>`:'';
+
+    if(Number(answerPlayer)===Number(player)) return note;
+
     const mine=reactionFor(qid,answerPlayer,player);
-    return `<div class="reactionRow" aria-label="React to this answer">${reactionChoices.map(r=>`<button class="reactionBtn${mine?.reaction===r?' on':''}" data-qid="${qid}" data-answer-player="${answerPlayer}" data-reaction="${r}" type="button">${r}</button>`).join('')}</div>`;
+    const controls=`<div class="reactionRow" aria-label="React to this answer">${reactionChoices.map(r=>`<button class="reactionBtn${mine?.reaction===r?' on':''}" data-qid="${qid}" data-answer-player="${answerPlayer}" data-reaction="${r}" type="button">${r}</button>`).join('')}</div>`;
+    return note+controls;
   }
 
   async function loadReactions(){
