@@ -122,9 +122,9 @@
   function historyFilterHtml(){
     const filters=[
       ['all','All'],
-      ['both','Both'],
-      ['p1',state.player1_name],
-      ['p2',state.player2_name]
+      ['both','Answered by both'],
+      ['p1',`Answered by ${state.player1_name}`],
+      ['you','Answered by you']
     ];
     return `<div class="cats" style="margin:12px 0 4px">${filters.map(([key,label])=>`<button type="button" class="cat historyFilterBtn${historyFilter===key?' on':''}" data-filter="${key}">${esc(label)}</button>`).join('')}</div>`;
   }
@@ -136,7 +136,7 @@
     const rows=allRows.filter(x=>{
       if(historyFilter==='both') return !!x.my_submitted && !!x.partner_submitted;
       if(historyFilter==='p1') return playerAnswered(x,1);
-      if(historyFilter==='p2') return playerAnswered(x,2);
+      if(historyFilter==='you') return !!x.my_submitted;
       return true;
     });
 
