@@ -2,8 +2,10 @@
   let typing=false;
   let resumeTimer=null;
 
+  function answerEl(){return document.getElementById('answer');}
+
   function fixAnswerBox(){
-    const answer=document.getElementById('answer');
+    const answer=answerEl();
     const answerArea=document.getElementById('answerArea');
     const submit=document.getElementById('submit');
     const reveal=document.getElementById('reveal');
@@ -43,7 +45,7 @@
   }
 
   function wireAnswerBox(){
-    const answer=document.getElementById('answer');
+    const answer=answerEl();
     if(!answer || answer.dataset.typingFix==='1') return;
     answer.dataset.typingFix='1';
     answer.addEventListener('focus',suspendPolling);
@@ -51,20 +53,37 @@
     answer.addEventListener('blur',resumePollingSoon);
   }
 
-  function run(){
-    fixAnswerBox();
-    removeNamedInvitePrompt();
-    wireAnswerBox();
-  }
+  /* A refresh may already be in flight when the keyboard opens. app.js then
+     renders the unanswered question and assigns answer.value='', which makes
+     iOS predictive/composition text appear to jumble. Preserve the draft and
+     caret across any such render while the textarea is focused. */
+  try{
+    if(typeof renderGame==='function'){
+      const originalRenderGame=renderGame;
+      renderGame=function(){
+        const before=answerEl();
+        const focused=before && document.activeElement===before;
+        const draft=focused ? before.value : null;
+        const start=focused ? before.selectionStart : null;
+        const end=focused ? before.selectionEnd : null;
+        originalRenderGame();
+        const after=answerEl();
+        if(focused && after && !after.disabled){
+          after.value=draft;
+          try{after.focus({preventScroll:true});}catch(e){after.focus();}
+          try{after.setSelectionRange(start,end);}catch(e){}
+        }
+      };
+    }
+  }catch(e){}
+
+  function run(){fixAnswerBox();removeNamedInvitePrompt();wireAnswerBox();}
 
   window.addEventListener('DOMContentLoaded',()=>{
     run();
-    const observer=new MutationObserver(()=>{
-      if(!typing) run();
-      else wireAnswerBox();
-    });
+    const observer=new MutationObserver(()=>{if(!typing) run();});
     observer.observe(document.body,{subtree:true,childList:true,attributes:true,characterData:true});
-    setInterval(()=>{ if(!typing) run(); },750);
+    setInterval(()=>{if(!typing) run();},750);
     document.addEventListener('touchstart',e=>{
       if(e.target && e.target.id==='answer'){
         suspendPolling();
