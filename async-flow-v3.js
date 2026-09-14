@@ -2,7 +2,7 @@
   let asyncMode=false;
   let openHistoryQuestion=null;
   let reactionsEnabled=false;
-  let historyFilter='all';
+  let historyFilter='both';
   const reactionChoices=['❤️','😂','👀','🫶🏻','😈'];
 
   const oldRefresh=window.refresh;
@@ -121,8 +121,7 @@
 
   function historyFilterHtml(){
     const filters=[
-      ['all','All'],
-      ['both','Answered by both'],
+      ['both','Answered by both of you'],
       ['p1',`Answered by ${state.player1_name}`],
       ['you','Answered by you']
     ];
