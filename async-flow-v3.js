@@ -1,0 +1,163 @@
+(function(){
+  let asyncMode=false;
+  let openHistoryQuestion=null;
+
+  const oldRefresh=window.refresh;
+  const oldNewQuestion=window.newQuestion;
+  const oldSkip=window.skip;
+
+  function partnerName(){return player===1?state?.player2_name:state?.player1_name;}
+
+  async function refreshV3(){
+    const active=document.activeElement;
+    if(active && (active.id==='answer' || active.classList?.contains('historyAnswerInput'))) return;
+    if(!game||!secret||!player) return;
+
+    const {data,error}=await sb.rpc('fm_state_v2',{p_game:game,p_secret:secret,p_player:player});
+    if(error){
+      asyncMode=false;
+      return oldRefresh();
+    }
+    asyncMode=true;
+    state=data;
+    renderGameV3();
+  }
+
+  async function newQuestionV3(){
+    if(!asyncMode) return oldNewQuestion();
+    const q=pickQuestion();
+    msg('Picking trouble…');
+    const {error}=await sb.rpc('fm_new_question_v2',{
+      p_game:game,
+      p_secret:secret,
+      p_player:player,
+      p_category:selected,
+      p_question:q
+    });
+    if(error){msg('Couldn’t pick a question.');return;}
+    openHistoryQuestion=null;
+    await refreshV3();
+  }
+
+  async function submitMainV3(){
+    if(!asyncMode) return window.submitAnswerLegacy ? window.submitAnswerLegacy() : null;
+    const cur=state?.current;
+    if(!cur) return;
+    const ans=$('#answer').value.trim();
+    if(!ans){msg('You do actually have to type something 😂');return;}
+    $('#submit').disabled=true;
+    const {error}=await sb.rpc('fm_submit_answer',{p_game:game,p_secret:secret,p_question:cur.id,p_player:player,p_answer:ans});
+    $('#submit').disabled=false;
+    if(error){msg('That answer refused to cooperate.');return;}
+    msg(cur.partner_submitted?'Both answers unlocked 👀':'Locked 🔒 Keep going whenever you like.');
+    await refreshV3();
+  }
+
+  async function skipV3(){
+    if(!asyncMode) return oldSkip();
+    const cur=state?.current;
+    if(!cur) return;
+    const {error}=await sb.rpc('fm_skip_question_v2',{p_game:game,p_secret:secret,p_question:cur.id,p_player:player});
+    if(error){msg('Can’t skip this one now — somebody has already answered it.');return;}
+    msg('Skipped. No explanation required 😌');
+    await refreshV3();
+  }
+
+  async function submitHistoryAnswer(qid){
+    const input=document.querySelector(`.historyAnswerInput[data-qid="${qid}"]`);
+    if(!input) return;
+    const ans=input.value.trim();
+    if(!ans){msg('You do actually have to type something 😂');return;}
+    const {error}=await sb.rpc('fm_submit_answer',{p_game:game,p_secret:secret,p_question:qid,p_player:player,p_answer:ans});
+    if(error){msg('That answer refused to cooperate.');return;}
+    openHistoryQuestion=null;
+    msg('Both answers unlocked 👀');
+    await refreshV3();
+  }
+
+  function historyHtmlV3(){
+    const rows=(state?.history||[]).filter(x=>!x.skipped && (x.my_submitted||x.partner_submitted));
+    if(!rows.length) return '<p class="muted">Nothing revealed yet. Suspiciously innocent.</p>';
+
+    return rows.map(x=>{
+      const both=x.my_submitted&&x.partner_submitted;
+      let body='';
+
+      if(both){
+        body=`<div class="answerBox"><strong>${esc(state.player1_name)}</strong><br>${esc(x.player1_answer)}</div><div class="answerBox"><strong>${esc(state.player2_name)}</strong><br>${esc(x.player2_answer)}</div>`;
+      } else if(x.my_submitted){
+        body=`<div class="answerBox"><strong>You</strong><br>${esc(x.my_answer)}</div><p class="muted">Waiting for ${esc(partnerName())} 🔒</p>`;
+      } else if(x.partner_submitted){
+        if(openHistoryQuestion===x.id){
+          body=`<p class="muted">${esc(partnerName())} has already answered. Yours unlocks both 👀</p><textarea class="historyAnswerInput" data-qid="${x.id}" placeholder="Your answer…"></textarea><button class="primary historySubmit" data-qid="${x.id}" style="width:100%;margin-top:10px">Answer to reveal 👀</button>`;
+        }else{
+          body=`<p class="muted">${esc(partnerName())} has answered this 👀</p><button class="primary historyReveal" data-qid="${x.id}" style="width:100%">Answer to reveal 👀</button>`;
+        }
+      }
+
+      return `<div class="historyItem"><div class="small">${esc(x.category)}</div><b>${esc(x.question)}</b>${body}</div>`;
+    }).join('');
+  }
+
+  function wireHistoryV3(){
+    document.querySelectorAll('.historyReveal').forEach(btn=>{
+      btn.onclick=()=>{openHistoryQuestion=btn.dataset.qid;renderGameV3();};
+    });
+    document.querySelectorAll('.historySubmit').forEach(btn=>{
+      btn.onclick=()=>submitHistoryAnswer(btn.dataset.qid);
+    });
+    document.querySelectorAll('.historyAnswerInput').forEach(input=>{
+      input.addEventListener('focus',()=>{try{stopPolling();}catch(e){}});
+      input.addEventListener('blur',()=>setTimeout(()=>{try{startPolling();}catch(e){}},500));
+    });
+  }
+
+  function renderGameV3(){
+    if(!asyncMode) return window.renderGameLegacy ? window.renderGameLegacy() : null;
+    renderCats();
+    $('#setup').hidden=true;
+    $('#game').hidden=false;
+    $('#paused').hidden=true;
+    $('#who').textContent=`You’re ${player===1?state.player1_name:state.player2_name}`;
+    $('#historyList').innerHTML=historyHtmlV3();
+    wireHistoryV3();
+
+    const cur=state.current;
+    if(!cur){
+      $('#question').textContent='Pick a category and cause a little trouble.';
+      $('#category').textContent='READY WHEN YOU ARE';
+      $('#answerArea').hidden=true;
+      $('#reveal').hidden=true;
+      $('#next').hidden=false;
+      $('#skip').hidden=true;
+      return;
+    }
+
+    $('#category').textContent=cur.category.toUpperCase();
+    $('#question').textContent=cur.question;
+    $('#reveal').hidden=true;
+    $('#next').hidden=true;
+    $('#answerArea').hidden=false;
+    $('#answer').value='';
+    $('#answer').disabled=false;
+    $('#submit').hidden=false;
+    $('#waiting').hidden=true;
+    $('#skip').hidden=!!cur.partner_submitted;
+  }
+
+  window.submitAnswerLegacy=window.submitAnswer;
+  window.renderGameLegacy=window.renderGame;
+  window.refresh=refreshV3;
+  window.newQuestion=newQuestionV3;
+  window.submitAnswer=submitMainV3;
+  window.skip=skipV3;
+  window.renderGame=renderGameV3;
+  window.historyHtml=historyHtmlV3;
+
+  window.addEventListener('DOMContentLoaded',()=>{
+    const next=$('#next'), submit=$('#submit'), skipBtn=$('#skip');
+    if(next) next.onclick=newQuestionV3;
+    if(submit) submit.onclick=submitMainV3;
+    if(skipBtn) skipBtn.onclick=skipV3;
+  });
+})();
