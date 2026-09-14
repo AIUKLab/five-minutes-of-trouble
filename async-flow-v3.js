@@ -2,6 +2,7 @@
   let asyncMode=false;
   let openHistoryQuestion=null;
   let reactionsEnabled=false;
+  let historyFilter='all';
   const reactionChoices=['❤️','😂','👀','🫶🏻','😈'];
 
   const oldRefresh=window.refresh;
@@ -114,11 +115,32 @@
     await refreshV3();
   }
 
-  function historyHtmlV3(){
-    const rows=(state?.history||[]).filter(x=>!x.skipped && (x.my_submitted||x.partner_submitted));
-    if(!rows.length) return '<p class="muted">Nothing revealed yet. Suspiciously innocent.</p>';
+  function playerAnswered(x,playerNo){
+    return player===playerNo ? !!x.my_submitted : !!x.partner_submitted;
+  }
 
-    return rows.map(x=>{
+  function historyFilterHtml(){
+    const filters=[
+      ['all','All'],
+      ['both','Both'],
+      ['p1',state.player1_name],
+      ['p2',state.player2_name]
+    ];
+    return `<div class="cats" style="margin:12px 0 4px">${filters.map(([key,label])=>`<button type="button" class="cat historyFilterBtn${historyFilter===key?' on':''}" data-filter="${key}">${esc(label)}</button>`).join('')}</div>`;
+  }
+
+  function historyHtmlV3(){
+    const allRows=(state?.history||[]).filter(x=>!x.skipped && (x.my_submitted||x.partner_submitted));
+    if(!allRows.length) return '<p class="muted">Nothing revealed yet. Suspiciously innocent.</p>';
+
+    const rows=allRows.filter(x=>{
+      if(historyFilter==='both') return !!x.my_submitted && !!x.partner_submitted;
+      if(historyFilter==='p1') return playerAnswered(x,1);
+      if(historyFilter==='p2') return playerAnswered(x,2);
+      return true;
+    });
+
+    const list=rows.length ? rows.map(x=>{
       const both=x.my_submitted&&x.partner_submitted;
       let body='';
 
@@ -135,10 +157,15 @@
       }
 
       return `<div class="historyItem"><div class="small">${esc(x.category)}</div><b>${esc(x.question)}</b>${body}</div>`;
-    }).join('');
+    }).join('') : '<p class="muted">Nothing in this filter yet.</p>';
+
+    return historyFilterHtml()+list;
   }
 
   function wireHistoryV3(){
+    document.querySelectorAll('.historyFilterBtn').forEach(btn=>{
+      btn.onclick=()=>{historyFilter=btn.dataset.filter;openHistoryQuestion=null;renderGameV3();};
+    });
     document.querySelectorAll('.historyReveal').forEach(btn=>{
       btn.onclick=()=>{openHistoryQuestion=btn.dataset.qid;renderGameV3();};
     });
