@@ -19,27 +19,32 @@ function params(){const u=new URL(location.href);return {room:u.searchParams.get
 function usedQuestions(){return new Set((state?.history||[]).map(x=>x.question))}
 function pickQuestion(){const used=usedQuestions();let pool=sets[selected].filter(x=>!used.has(x));if(!pool.length) pool=[...sets[selected]];return pool[Math.floor(Math.random()*pool.length)]}
 function shareUrlFor(p){const u=new URL(location.href);u.search='';u.searchParams.set('room',game);u.searchParams.set('s',secret);u.searchParams.set('p',p);return u.toString()}
+function pausedKey(){return game?`fmot:paused:${game}:${player}`:null}
 
-async function createGame(){const p1=$('#p1').value.trim()||'Ange',p2=$('#p2').value.trim()||'Vee';secret=randSecret();msg('Making trouble…');const {data,error}=await sb.rpc('fm_create_game',{p_secret:secret,p1,p2});if(error){msg('Database not ready yet — run the SQL setup first.');return}game=data;player=1;history.replaceState({},'',shareUrlFor(1));localStorage.setItem('fmot:'+game,'1');await refresh();msg('Made 😈 Send Vee the invite link.');}
+async function createGame(){const p1=$('#p1').value.trim()||'Ange',p2=$('#p2').value.trim()||'Vee';secret=randSecret();msg('Making trouble…');const {data,error}=await sb.rpc('fm_create_game',{p_secret:secret,p1,p2});if(error){msg('Database not ready yet — run the SQL setup first.');return}game=data;player=1;history.replaceState({},'',shareUrlFor(1));localStorage.setItem('fmot:'+game,'1');localStorage.removeItem(pausedKey());await refresh();startPolling();msg('Made 😈 Send Vee the invite link.');}
 
 async function refresh(){if(!game||!secret||!player)return;const {data,error}=await sb.rpc('fm_state',{p_game:game,p_secret:secret,p_player:player});if(error){msg('Couldn’t load the game.');return}state=data;renderGame();}
+function startPolling(){if(poller)clearInterval(poller);poller=setInterval(refresh,3500)}
+function stopPolling(){if(poller){clearInterval(poller);poller=null}}
 
 async function newQuestion(){const q=pickQuestion();msg('Picking trouble…');const {error}=await sb.rpc('fm_new_question',{p_game:game,p_secret:secret,p_category:selected,p_question:q});if(error){msg(error.message.includes('Finish')?'Answer or skip this one first 😂':'Couldn’t pick a question.');return}await refresh();}
 
 async function submitAnswer(){const cur=state?.current;if(!cur)return;const ans=$('#answer').value.trim();if(!ans){msg('You do actually have to type something 😂');return}$('#submit').disabled=true;const {error}=await sb.rpc('fm_submit_answer',{p_game:game,p_secret:secret,p_question:cur.id,p_player:player,p_answer:ans});$('#submit').disabled=false;if(error){msg('That answer refused to cooperate.');return}msg('Locked 🔒 Waiting for the other answer…');await refresh();}
 
-async function skip(){const cur=state?.current;if(!cur)return;await sb.rpc('fm_skip_question',{p_game:game,p_secret:secret,p_question:cur.id});msg('Legally erased from history 😂 Pick another.');state.current=null;renderGame();}
+async function skip(){const cur=state?.current;if(!cur)return;await sb.rpc('fm_skip_question',{p_game:game,p_secret:secret,p_question:cur.id});msg('Skipped. No explanation required 😌');state.current=null;renderGame();}
 
 async function shareInvite(){const other=player===1?2:1;const url=shareUrlFor(other);const text=`Five Minutes of Trouble 😈\n${url}`;if(navigator.share){try{await navigator.share({text});return}catch(e){}}await navigator.clipboard.writeText(text);msg('Invite copied — paste into WhatsApp 😈')}
+function pauseGame(){localStorage.setItem(pausedKey(),'1');stopPolling();$('#game').hidden=true;$('#paused').hidden=false;msg('');}
+async function resumeGame(){localStorage.removeItem(pausedKey());$('#paused').hidden=true;$('#game').hidden=false;await refresh();startPolling();}
 
 function renderCats(){const c=$('#cats');c.innerHTML='';Object.keys(sets).forEach(n=>{const b=document.createElement('button');b.className='cat'+(n===selected?' on':'');b.textContent=n;b.onclick=()=>{selected=n;renderCats()};c.appendChild(b)})}
 function historyHtml(){const rows=(state?.history||[]).filter(x=>!x.skipped&&x.player1_answer&&x.player2_answer);if(!rows.length)return '<p class="muted">Nothing revealed yet. Suspiciously innocent.</p>';return rows.map(x=>`<div class="historyItem"><div class="small">${esc(x.category)}</div><b>${esc(x.question)}</b><div class="answerBox"><strong>${esc(state.player1_name)}</strong><br>${esc(x.player1_answer)}</div><div class="answerBox"><strong>${esc(state.player2_name)}</strong><br>${esc(x.player2_answer)}</div></div>`).join('')}
-function renderGame(){renderCats();$('#setup').hidden=true;$('#game').hidden=false;$('#who').textContent=`You’re ${player===1?state.player1_name:state.player2_name}`;$('#historyList').innerHTML=historyHtml();const cur=state.current;
+function renderGame(){renderCats();$('#setup').hidden=true;$('#game').hidden=false;$('#paused').hidden=true;$('#who').textContent=`You’re ${player===1?state.player1_name:state.player2_name}`;$('#historyList').innerHTML=historyHtml();const cur=state.current;
  if(!cur||cur.skipped){$('#question').textContent='Pick a category and cause a little trouble.';$('#category').textContent='READY WHEN YOU ARE';$('#answerArea').hidden=true;$('#reveal').hidden=true;$('#next').hidden=false;$('#skip').hidden=true;return}
  $('#category').textContent=cur.category.toUpperCase();$('#question').textContent=cur.question;$('#skip').hidden=false;
  if(cur.both_submitted){$('#answerArea').hidden=true;$('#reveal').hidden=false;$('#next').hidden=false;$('#a1').innerHTML=`<strong>${esc(state.player1_name)}</strong><br>${esc(cur.player1_answer)}`;$('#a2').innerHTML=`<strong>${esc(state.player2_name)}</strong><br>${esc(cur.player2_answer)}`;msg('Both answers unlocked 😈');}
  else {$('#reveal').hidden=true;$('#next').hidden=true;$('#answerArea').hidden=false;const mine=cur.my_answer;if(mine){$('#answer').value=mine;$('#answer').disabled=true;$('#submit').hidden=true;$('#waiting').hidden=false;$('#waiting').textContent=cur.partner_submitted?'Both are in… revealing 👀':'Yours is locked 🔒 Waiting for them…';}else{$('#answer').value='';$('#answer').disabled=false;$('#submit').hidden=false;$('#waiting').hidden=true;}}
 }
-function init(){renderCats();const p=params();game=p.room;secret=p.s;player=p.p||Number(localStorage.getItem('fmot:'+game));if(game&&secret&&[1,2].includes(player)){localStorage.setItem('fmot:'+game,String(player));refresh();poller=setInterval(refresh,3500)}else{$('#setup').hidden=false;$('#game').hidden=true}
- $('#create').onclick=createGame;$('#next').onclick=newQuestion;$('#submit').onclick=submitAnswer;$('#skip').onclick=skip;$('#share').onclick=shareInvite;$('#historyBtn').onclick=()=>$('#history').classList.toggle('open');}
+function init(){renderCats();const p=params();game=p.room;secret=p.s;player=p.p||Number(localStorage.getItem('fmot:'+game));if(game&&secret&&[1,2].includes(player)){localStorage.setItem('fmot:'+game,String(player));if(localStorage.getItem(pausedKey())==='1'){$('#setup').hidden=true;$('#game').hidden=true;$('#paused').hidden=false;}else{refresh();startPolling()}}else{$('#setup').hidden=false;$('#game').hidden=true;$('#paused').hidden=true}
+ $('#create').onclick=createGame;$('#next').onclick=newQuestion;$('#submit').onclick=submitAnswer;$('#skip').onclick=skip;$('#share').onclick=shareInvite;$('#historyBtn').onclick=()=>$('#history').classList.toggle('open');$('#pause').onclick=pauseGame;$('#resume').onclick=resumeGame;}
 window.addEventListener('DOMContentLoaded',init);
